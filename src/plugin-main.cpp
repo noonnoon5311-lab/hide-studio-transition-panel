@@ -23,6 +23,9 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <plugin-support.h>
 
 #include <QAction>
+#include <QBoxLayout>
+#include <QLayout>
+#include <QLayoutItem>
 #include <QMainWindow>
 #include <QSlider>
 #include <QString>
@@ -99,6 +102,49 @@ static void apply_panel_visibility()
 
 	panel->setVisible(!hide_panel);
 	obs_log(LOG_INFO, "transition panel %s", hide_panel ? "hidden" : "shown");
+
+	/* Let the Preview and Program areas take all of the freed-up width. */
+	QWidget *editor = panel->parentWidget();
+	auto *layout = editor ? qobject_cast<QBoxLayout *>(editor->layout()) : nullptr;
+	if (!layout) {
+		obs_log(LOG_WARNING, "preview layout not found");
+		return;
+	}
+
+	for (int i = 0; i < layout->count(); i++) {
+		QWidget *w = layout->itemAt(i)->widget();
+		if (!w || w == panel)
+			continue;
+		layout->setStretchFactor(w, 1);
+		layout->setAlignment(w, Qt::Alignment());
+		w->setMaximumWidth(QWIDGETSIZE_MAX);
+	}
+	layout->invalidate();
+	layout->activate();
+
+	QTimer::singleShot(500, [editor, layout]() {
+		QMargins m = layout->contentsMargins();
+		obs_log(LOG_INFO, "[layout] editor width=%d spacing=%d margins=%d,%d,%d,%d", editor->width(),
+			layout->spacing(), m.left(), m.top(), m.right(), m.bottom());
+		for (int i = 0; i < layout->count(); i++) {
+			QLayoutItem *item = layout->itemAt(i);
+			QWidget *w = item->widget();
+			QRect g = item->geometry();
+			obs_log(LOG_INFO, "[layout] item %d %s visible=%d x=%d w=%d max=%d hint=%d", i,
+				w ? w->metaObject()->className() : "spacer", w ? (int)w->isVisible() : -1, g.x(),
+				g.width(), w ? w->maximumWidth() : -1, item->sizeHint().width());
+			if (w && w->layout()) {
+				QLayout *inner = w->layout();
+				for (int j = 0; j < inner->count(); j++) {
+					QLayoutItem *ii = inner->itemAt(j);
+					QWidget *iw = ii->widget();
+					obs_log(LOG_INFO, "[layout]   child %d %s x=%d w=%d", j,
+						iw ? iw->metaObject()->className() : "item", ii->geometry().x(),
+						ii->geometry().width());
+				}
+			}
+		}
+	});
 }
 
 static void schedule_apply()
